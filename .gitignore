@@ -1,0 +1,6 @@
+*~
+*.pyc
+
+/build/
+/dist/
+/lvn.egg-info/
