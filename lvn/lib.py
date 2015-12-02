@@ -3,9 +3,14 @@
 # found in the LICENSE file.
 
 import json
+import logging
 import os
 import sys
 import subprocess
+import tempfile
+
+
+_logger = logging.getLogger(__name__)
 
 
 class Branch(object):
@@ -39,6 +44,8 @@ class Lvn(object):
             self.branches[self.current_branch] = Branch(self.current_branch)
             return
         self.lvn_dir, _ = os.path.split(lvn_file)
+        self.svn_dir = os.path.abspath(os.path.join(self.lvn_dir, '..'))
+        self.tmp_dir = os.path.join(self.svn_dir, 'tmp')
         self.top_dir = os.path.abspath(os.path.join(self.lvn_dir, '..', '..'))
         with open(lvn_file, 'r') as lvn_json_file:
             json_obj = json.loads(lvn_json_file.read())
@@ -68,6 +75,7 @@ class Lvn(object):
             self.current_branch = new_name
 
     def SaveCurrentBranch(self):
+        _logger.debug('Saving current patch')
         branch = self.branches[self.current_branch]
         if branch.patch_file is None:
             branch.patch_file = branch.name + '.patch'
@@ -77,6 +85,7 @@ class Lvn(object):
             raise Exception('svn diff failed')
 
     def Revert(self):
+        _logger.debug('Reverting changes')
         p = subprocess.Popen(['svn', 'status'], cwd=self.top_dir, stdout=subprocess.PIPE)
         added = []
         for line in p.stdout:
@@ -102,6 +111,7 @@ class Lvn(object):
                 sys.stderr.write(str(e) + '\n')
 
     def RestoreBranch(self):
+        _logger.debug('Restoring changes from patch')
         branch = self.branches[self.current_branch]
         if branch.patch_file is None:
             return
@@ -115,6 +125,62 @@ class Lvn(object):
         del self.branches[branch_name]
         if branch.patch_file is not None:
             os.remove(os.path.join(self.lvn_dir, branch.patch_file))
+
+    def SaveNonTracked(self):
+        """Saves non-tracked files and directories to an archive."""
+        _logger.debug('Archiving non-tracked files')
+        p = subprocess.Popen(['svn', 'status'], cwd=self.top_dir, stdout=subprocess.PIPE)
+        paths = []
+        for line in p.stdout:
+            if line.startswith('?'):
+                paths.append(line[8:].strip())
+        if p.wait() != 0:
+            raise Exception('svn status failed')
+
+        archive_fd, archive_name = tempfile.mkstemp(dir=self.tmp_dir, suffix='.cpio')
+        _logger.debug('Archive name: %r', archive_name)
+        try:
+            cmd_find = ['find']
+            cmd_find.extend(paths)
+            p_find = subprocess.Popen(cmd_find, cwd=self.top_dir, stdout=subprocess.PIPE)
+            cmd_cpio = ['cpio', '-o']
+            p_cpio = subprocess.Popen(cmd_cpio, cwd=self.top_dir, stdin=p_find.stdout, stdout=archive_fd)
+        finally:
+            os.close(archive_fd)
+
+        if p_find.wait() != 0:
+            raise Exception('find failed')
+        if p_cpio.wait() != 0:
+            raise Exception('cpio failed')
+
+        return archive_name
+
+    def Clean(self):
+        """Removes non-tracked files and dirs from working tree."""
+        _logger.debug('Cleaning non-tracked files')
+        p = subprocess.Popen(['svn', 'status'], cwd=self.top_dir, stdout=subprocess.PIPE)
+        paths = []
+        for line in p.stdout:
+            if line.startswith('?'):
+                paths.append(line[8:].strip())
+        if p.wait() != 0:
+            raise Exception('svn status failed')
+
+        cmd_find = ['find']
+        cmd_find.extend(paths)
+        cmd_find.append('-delete')
+        p_find = subprocess.Popen(cmd_find, cwd=self.top_dir)
+        if p_find.wait() != 0:
+            raise Exception('find failed')
+
+    def RestoreNonTracked(self, archive_name):
+        _logger.debug('Restoring non-tracked files')
+        cmd_cpio = ['cpio', '-i', '-d']
+        with open(archive_name, 'rb') as archive:
+            p_cpio = subprocess.Popen(cmd_cpio, cwd=self.top_dir, stdin=archive, stderr=open(os.devnull, 'wb'))
+            if p_cpio.wait() != 0:
+                raise Exception('cpio failed')
+        os.remove(archive_name)
 
 
 def GetSvnDir(working_dir):

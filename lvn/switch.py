@@ -29,8 +29,11 @@ def Switch(args):
   try:
     lvn.SaveCurrentBranch()
     lvn.Revert()
+    archive = lvn.SaveNonTracked()
+    lvn.Clean()
     lvn.current_branch = args.branch
     lvn.RestoreBranch()
+    lvn.RestoreNonTracked(archive)
   finally:
     lvn.Save()
 
