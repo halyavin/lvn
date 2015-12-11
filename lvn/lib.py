@@ -137,6 +137,10 @@ class Lvn(object):
         if p.wait() != 0:
             raise Exception('svn status failed')
 
+        if not paths:
+            _logger.debug('No non-tracked files')
+            return None
+
         archive_fd, archive_name = tempfile.mkstemp(dir=self.tmp_dir, suffix='.cpio')
         _logger.debug('Archive name: %r', archive_name)
         try:
@@ -166,6 +170,10 @@ class Lvn(object):
         if p.wait() != 0:
             raise Exception('svn status failed')
 
+        if not paths:
+            _logger.debug('No non-tracked files')
+            return
+
         cmd_find = ['find']
         cmd_find.extend(paths)
         cmd_find.append('-delete')
@@ -175,6 +183,9 @@ class Lvn(object):
 
     def RestoreNonTracked(self, archive_name):
         _logger.debug('Restoring non-tracked files')
+        if not (archive_name and os.path.exists(archive_name)):
+            _logger.debug('No archive. Skipping restoring non-tracked files')
+            return
         cmd_cpio = ['cpio', '-i', '-d']
         with open(archive_name, 'rb') as archive:
             p_cpio = subprocess.Popen(cmd_cpio, cwd=self.top_dir, stdin=archive, stderr=open(os.devnull, 'wb'))
