@@ -80,7 +80,7 @@ class Lvn(object):
         if branch.patch_file is None:
             branch.patch_file = branch.name + '.patch'
         with open(os.path.join(self.lvn_dir, branch.patch_file), 'w') as patch_file:
-            ret = subprocess.call(['svn', 'diff', self.top_dir], cwd=self.top_dir, stdout=patch_file)
+            ret = subprocess.call(['svn', 'diff'], cwd=self.top_dir, stdout=patch_file)
         if ret != 0:
             raise Exception('svn diff failed')
 
